@@ -7,7 +7,7 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('soup.' + k)); return v ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem('soup.' + k, JSON.stringify(v)); } catch { /* private mode */ } },
   };
-  const prefs = Object.assign({ unit: 'C', sound: true, voice: false, red: false, voiceURI: null, rate: 1, pitch: 1 }, store.get('prefs', {}));
+  const prefs = Object.assign({ unit: 'C', sound: true, voice: false, red: false, voiceURI: null, rate: 1, pitch: 1, awake: true }, store.get('prefs', {}));
   const sel = Object.assign(
     { process: 'c41', film: {}, kit: {}, push: 0, temp: 20, agitation: 'ilford', rollsNow: 1, customSec: 480 },
     store.get('sel', {}),
@@ -389,14 +389,107 @@
     u.pitch = +prefs.pitch || 1;
     speechSynthesis.speak(u);
   }
-  let wakeLock = null;
-  async function lockScreen() {
-    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* ignore */ }
+  /* ---------- Keep the screen awake ----------
+   * 1. Screen Wake Lock API (Android Chrome, iOS/iPadOS 16.4+, desktop).
+   *    The lock is dropped whenever the page is hidden, so we re-acquire it on
+   *    return and on the next tap (some browsers require a user gesture).
+   * 2. Fallback for browsers without it (or on plain http): a tiny, invisible,
+   *    muted looping video, which most mobile browsers treat as "media playing".
+   */
+  const awake = { lock: null, video: null, timer: null, status: 'idle', pending: false };
+  const AWAKE_TEXT = {
+    idle: 'Tap anywhere to keep the screen awake',
+    on: 'Screen will stay on',
+    fallback: 'Screen kept on (fallback mode)',
+    retry: 'Screen may sleep — tap anywhere to re-enable',
+    failed: 'Couldn\'t keep the screen on (battery saver?). Set Auto-Lock / Screen timeout to Never as a backup.',
+    off: 'Screen may sleep normally',
+  };
+  const lockHeld = () => awake.lock && !awake.lock.released;
+
+  function setAwake(status) {
+    awake.status = status;
+    const chip = $('awakeToggle');
+    const bad = status === 'retry' || status === 'failed';
+    chip.setAttribute('aria-pressed', String(prefs.awake));
+    chip.classList.toggle('warn', prefs.awake && bad);
+    chip.textContent = prefs.awake ? (bad ? '⚠ Stay awake' : '☀ Stay awake') : '☾ Stay awake';
+    chip.title = AWAKE_TEXT[status] || '';
+    const runWarn = $('awakeWarn');
+    if (runWarn) {
+      runWarn.textContent = AWAKE_TEXT[status] || '';
+      runWarn.classList.toggle('hidden', !(prefs.awake && bad));
+    }
   }
-  function releaseScreen() { if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; } }
+
+  async function requestWake() {
+    if (!prefs.awake || document.visibilityState !== 'visible' || awake.pending) return;
+    if (lockHeld()) return setAwake('on');
+    awake.pending = true;
+    try {
+      if ('wakeLock' in navigator) {
+        try {
+          awake.lock = await navigator.wakeLock.request('screen');
+          awake.lock.addEventListener('release', () => {
+            awake.lock = null;
+            if (prefs.awake && document.visibilityState === 'visible') { setAwake('retry'); requestWake(); }
+          });
+          stopVideoFallback();
+          return setAwake('on');
+        } catch { /* denied — try the fallback */ }
+      }
+      setAwake(startVideoFallback() ? 'fallback' : 'failed');
+    } finally {
+      awake.pending = false;
+    }
+  }
+
+  function startVideoFallback() {
+    try {
+      if (!awake.video) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 2;
+        if (!c.captureStream) return false;
+        const ctx = c.getContext('2d');
+        const v = document.createElement('video');
+        v.muted = true; v.loop = true; v.playsInline = true;
+        v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('aria-hidden', 'true');
+        v.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1';
+        v.srcObject = c.captureStream(1);
+        awake.timer = setInterval(() => { ctx.fillStyle = `rgb(${(Math.random() * 30) | 0},0,0)`; ctx.fillRect(0, 0, 2, 2); }, 1000);
+        document.body.appendChild(v);
+        awake.video = v;
+      }
+      const p = awake.video.play();
+      if (p && p.catch) p.catch(() => setAwake('retry'));
+      return true;
+    } catch { return false; }
+  }
+
+  function stopVideoFallback() {
+    if (!awake.video) return;
+    awake.video.pause();
+    awake.video.srcObject?.getTracks?.().forEach((t) => t.stop());
+    awake.video.remove();
+    awake.video = null;
+    clearInterval(awake.timer);
+  }
+
+  function allowSleep() {
+    if (awake.lock) awake.lock.release().catch(() => {});
+    awake.lock = null;
+    stopVideoFallback();
+    setAwake('off');
+  }
+
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && current === 'run') lockScreen();
+    if (document.visibilityState === 'visible') requestWake();
   });
+  // Any tap counts as a user gesture, which some browsers need before granting the lock.
+  document.addEventListener('pointerdown', () => {
+    if (prefs.awake && !lockHeld() && awake.status !== 'fallback') requestWake();
+    else if (prefs.awake && awake.video && awake.video.paused) awake.video.play().catch(() => {});
+  }, true);
 
   /* ================= Run engine ================= */
   const run = { steps: [], i: 0, state: 'ready', endAt: 0, remaining: 0, lastAgit: false, drainCued: false, doneCued: false, lastTick: null, timer: null };
@@ -404,7 +497,7 @@
   function startSession() {
     run.steps = session.steps.filter((s) => s.enabled);
     unlockAudio();
-    lockScreen();
+    requestWake();
     loadStep(0);
     show('run');
     clearInterval(run.timer);
@@ -470,7 +563,7 @@
 
   function finishSession() {
     clearInterval(run.timer);
-    releaseScreen();
+
     const kit = currentKit(); const b = batch();
     $('doneText').textContent = `${sel.rollsNow} roll${sel.rollsNow > 1 ? 's' : ''} of ${currentFilm().name} through ${kit.name}. Let it dry fully before cutting and sleeving.`;
     const btn = $('logRolls');
@@ -607,7 +700,7 @@
     $('resetStep').addEventListener('click', resetStep);
     $('addTime').addEventListener('click', addTime);
     $('exitRun').addEventListener('click', () => confirmBox('Exit this session? Your progress will be lost.', () => {
-      clearInterval(run.timer); releaseScreen(); window.speechSynthesis?.cancel(); show('review');
+      clearInterval(run.timer); window.speechSynthesis?.cancel(); show('review');
     }));
     $('backToSetup').addEventListener('click', () => { renderSetup(); show('setup'); });
     $('logRolls').addEventListener('click', () => {
@@ -661,6 +754,11 @@
     $('soundToggle').addEventListener('click', () => { prefs.sound = !prefs.sound; savePrefs(); applyPrefs(); unlockAudio(); if (prefs.sound) sfx.start(); });
     $('voiceToggle').addEventListener('click', () => { prefs.voice = !prefs.voice; savePrefs(); applyPrefs(); if (prefs.voice) say('Voice cues on'); });
     $('redToggle').addEventListener('click', () => { prefs.red = !prefs.red; savePrefs(); applyPrefs(); });
+    $('awakeToggle').addEventListener('click', () => {
+      prefs.awake = !prefs.awake; savePrefs();
+      if (prefs.awake) { setAwake('idle'); requestWake(); } else allowSleep();
+    });
+    $('awakeWarn').addEventListener('click', () => requestWake());
 
     // Voice settings modal
     $('voiceSettings').addEventListener('click', () => { loadVoices(); $('voiceModal').classList.remove('hidden'); });
@@ -685,4 +783,6 @@
   bindSetup();
   bindRun();
   renderSetup();
+  setAwake(prefs.awake ? 'idle' : 'off');
+  requestWake(); // works immediately where no user gesture is required; otherwise on first tap
 })();
