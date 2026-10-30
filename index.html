@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d0f" />
+  <meta name="description" content="Step-by-step timer for developing C-41, ECN-2 and black & white film at home." />
+  <title>Soup — Home Film Developing Timer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-process="c41">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Soup</span>
+      <span class="brand-tag">home film developing</span>
+    </div>
+    <div class="toggles">
+      <button class="chip" id="unitToggle" title="Switch temperature units">°C</button>
+      <button class="chip" id="soundToggle" aria-pressed="true" title="Beeps">🔔 Sound</button>
+      <button class="chip" id="voiceToggle" aria-pressed="false" title="Spoken cues">🗣 Voice</button>
+      <button class="chip" id="redToggle" aria-pressed="false" title="Dim red display for dark rooms">● Red mode</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= SETUP ================= -->
+    <section id="screen-setup" class="screen active">
+      <div class="setup-grid">
+        <div class="setup-form">
+          <div class="block">
+            <h2><span class="num">1</span> Process</h2>
+            <div class="process-cards" id="processCards" role="radiogroup"></div>
+          </div>
+
+          <div class="block">
+            <h2><span class="num">2</span> Film</h2>
+            <select id="filmSelect" class="big-select"></select>
+            <div id="customTimeRow" class="row hidden">
+              <label>Developer time at 20 °C
+                <span class="time-input">
+                  <input type="number" id="customMin" min="0" max="60" value="8" inputmode="numeric" /> min
+                  <input type="number" id="customSec" min="0" max="59" step="5" value="0" inputmode="numeric" /> s
+                </span>
+              </label>
+            </div>
+            <p class="hint" id="filmHint"></p>
+          </div>
+
+          <div class="block">
+            <h2><span class="num">3</span> <span id="kitLabel">Kit</span></h2>
+            <select id="kitSelect" class="big-select"></select>
+            <p class="hint" id="kitHint"></p>
+          </div>
+
+          <div class="block">
+            <h2><span class="num">4</span> Conditions</h2>
+            <div class="field">
+              <span class="field-label">Push / pull</span>
+              <div class="segmented" id="pushSeg"></div>
+            </div>
+            <div class="field bw-only">
+              <span class="field-label">Developer temperature</span>
+              <div class="temp-row">
+                <input type="range" id="tempRange" min="18" max="26" step="0.5" value="20" />
+                <output id="tempOut">20 °C</output>
+              </div>
+            </div>
+            <div class="field bw-only">
+              <span class="field-label">Agitation</span>
+              <select id="agitationSelect" class="big-select small">
+                <option value="ilford">Ilford — 10 s inversions every minute</option>
+                <option value="kodak">Kodak — 30 s initial, then 5 s every 30 s</option>
+              </select>
+            </div>
+            <div class="field colour-only">
+              <span class="field-label">Process temperature</span>
+              <p class="hint strong" id="colourTemp"></p>
+            </div>
+          </div>
+
+          <div class="block">
+            <h2><span class="num">5</span> Chemistry age</h2>
+            <p class="hint" id="ageIntro"></p>
+            <div class="age-grid">
+              <label class="field">
+                <span class="field-label" id="mixedLabel">Date mixed</span>
+                <input type="date" id="mixedDate" />
+              </label>
+              <label class="field reuse-only">
+                <span class="field-label">Rolls already developed in this batch</span>
+                <div class="stepper">
+                  <button type="button" data-step="-1" data-target="rollsUsed">−</button>
+                  <input type="number" id="rollsUsed" min="0" max="99" value="0" inputmode="numeric" />
+                  <button type="button" data-step="1" data-target="rollsUsed">+</button>
+                </div>
+              </label>
+              <label class="field">
+                <span class="field-label">Rolls in this session</span>
+                <div class="stepper">
+                  <button type="button" data-step="-1" data-target="rollsNow">−</button>
+                  <input type="number" id="rollsNow" min="1" max="20" value="1" inputmode="numeric" />
+                  <button type="button" data-step="1" data-target="rollsNow">+</button>
+                </div>
+              </label>
+            </div>
+            <details class="advanced reuse-only">
+              <summary>Compensation rates</summary>
+              <div class="age-grid">
+                <label class="field">
+                  <span class="field-label">+ % dev time per roll used</span>
+                  <input type="number" id="perRollPct" min="0" max="30" step="0.5" />
+                </label>
+                <label class="field">
+                  <span class="field-label">+ % dev time per week since mixing</span>
+                  <input type="number" id="perWeekPct" min="0" max="10" step="0.5" />
+                </label>
+              </div>
+              <p class="hint">These are rule-of-thumb values. If your kit's instructions give a specific table, adjust these to match. <button type="button" class="link" id="resetRates">Reset to defaults</button></p>
+            </details>
+          </div>
+        </div>
+
+        <aside class="summary" id="summary">
+          <div class="summary-inner">
+            <div class="summary-label">Developer time</div>
+            <div class="summary-time" id="sumTime">--:--</div>
+            <div class="summary-temp" id="sumTemp"></div>
+            <ul class="breakdown" id="sumBreakdown"></ul>
+            <ul class="warnings" id="sumWarnings"></ul>
+            <div class="summary-total" id="sumTotal"></div>
+            <button class="btn primary xl" id="toReview">Review steps →</button>
+            <p class="disclaimer">Times are starting points from datasheets &amp; community charts. Always check your kit / film instructions.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ================= REVIEW ================= -->
+    <section id="screen-review" class="screen">
+      <div class="review-head">
+        <button class="btn ghost" id="backToSetup">← Back</button>
+        <div>
+          <h2 id="reviewTitle"></h2>
+          <p class="hint" id="reviewSub"></p>
+        </div>
+      </div>
+      <p class="hint">Tap a time to edit it. Toggle optional steps on or off.</p>
+      <ol class="step-list" id="stepList"></ol>
+      <div class="review-foot">
+        <div class="summary-total" id="reviewTotal"></div>
+        <button class="btn primary xl" id="startSession">Start developing ▶</button>
+      </div>
+    </section>
+
+    <!-- ================= RUN ================= -->
+    <section id="screen-run" class="screen">
+      <div class="run-top">
+        <button class="btn ghost" id="exitRun">✕ Exit</button>
+        <div class="run-progress">
+          <div class="run-count" id="runCount"></div>
+          <div class="bar"><div class="bar-fill" id="runBar"></div></div>
+        </div>
+        <div class="run-next" id="runNext"></div>
+      </div>
+
+      <div class="run-main" id="runMain">
+        <div class="run-step-name" id="runName"></div>
+        <div class="run-temp" id="runTemp"></div>
+        <div class="run-timer" id="runTimer">0:00</div>
+        <div class="run-status" id="runStatus"></div>
+        <div class="agitate" id="agitate">
+          <span class="agitate-label" id="agitateLabel"></span>
+          <span class="agitate-sub" id="agitateSub"></span>
+        </div>
+        <p class="run-instr" id="runInstr"></p>
+      </div>
+
+      <div class="run-controls">
+        <button class="btn ctrl" id="prevStep" title="Previous step">⏮</button>
+        <button class="btn ctrl" id="resetStep" title="Restart this step">↺</button>
+        <button class="btn primary huge" id="mainAction">Start</button>
+        <button class="btn ctrl" id="addTime" title="Add 15 seconds">+15s</button>
+        <button class="btn ctrl" id="nextStep" title="Skip to next step">⏭</button>
+      </div>
+    </section>
+
+    <!-- ================= DONE ================= -->
+    <section id="screen-done" class="screen">
+      <div class="done">
+        <div class="done-icon">🎞️</div>
+        <h2>All done!</h2>
+        <p id="doneText"></p>
+        <div class="done-batch reuse-only" id="doneBatch">
+          <p>Update your chemistry log? Next time the developer time will be adjusted automatically.</p>
+          <button class="btn primary xl" id="logRolls"></button>
+        </div>
+        <button class="btn ghost xl" id="newSession">Start a new session</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal hidden" id="confirmModal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <p id="confirmText"></p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="confirmNo">Cancel</button>
+        <button class="btn primary" id="confirmYes">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
