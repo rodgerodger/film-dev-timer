@@ -7,7 +7,7 @@
     get(k, d) { try { const v = JSON.parse(localStorage.getItem('soup.' + k)); return v ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem('soup.' + k, JSON.stringify(v)); } catch { /* private mode */ } },
   };
-  const prefs = Object.assign({ unit: 'C', sound: true, voice: false, red: false }, store.get('prefs', {}));
+  const prefs = Object.assign({ unit: 'C', sound: true, voice: false, red: false, voiceURI: null, rate: 1, pitch: 1 }, store.get('prefs', {}));
   const sel = Object.assign(
     { process: 'c41', film: {}, kit: {}, push: 0, temp: 20, agitation: 'ilford', rollsNow: 1, customSec: 480 },
     store.get('sel', {}),
@@ -334,11 +334,59 @@
     start: () => tone(988, 0.15),
   };
   const buzz = (p) => { if (navigator.vibrate) navigator.vibrate(p); };
-  function say(text) {
-    if (!prefs.voice || !('speechSynthesis' in window)) return;
+  /* ---------- Voice selection ----------
+   * The Web Speech API uses whatever voices the device has installed. The
+   * browser default is often a low-quality or novelty voice, so we rank them
+   * and let the user pick.
+   */
+  let voices = [];
+  const NOVELTY = /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|superstar|trinoids|whisper|wobble|zarvox|fred|junior|ralph|kathy|grandma|grandpa|rocko|shelley|eddy|flo|reed|sandy)\b/i;
+  const userLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  function scoreVoice(v) {
+    let s = 0;
+    if (/premium|enhanced|natural|neural|wavenet/i.test(v.name)) s += 50;
+    if (/siri/i.test(v.name)) s += 40;
+    if (/google/i.test(v.name)) s += 30;
+    if (/samantha|karen|daniel|serena|ava|zoe|allison|susan|moira|tessa|evan|nathan|joelle|noelle/i.test(v.name)) s += 20;
+    const lang = (v.lang || '').toLowerCase();
+    if (lang.startsWith(userLang)) s += 15;
+    if (lang.replace('_', '-') === (navigator.language || '').toLowerCase()) s += 5;
+    if (v.localService) s += 3;
+    return s;
+  }
+  function loadVoices() {
+    if (!('speechSynthesis' in window)) return;
+    voices = speechSynthesis.getVoices()
+      .filter((v) => !NOVELTY.test(v.name))
+      .filter((v) => { const l = (v.lang || '').toLowerCase(); return l.startsWith(userLang) || l.startsWith('en'); })
+      .sort((a, b) => scoreVoice(b) - scoreVoice(a) || a.name.localeCompare(b.name));
+    if (!voices.some((v) => v.voiceURI === prefs.voiceURI) && voices.length) prefs.voiceURI = voices[0].voiceURI;
+    renderVoiceSelect();
+  }
+  function renderVoiceSelect() {
+    const selEl = $('voiceSelect');
+    if (!selEl) return;
+    selEl.innerHTML = voices.length
+      ? voices.map((v) => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === prefs.voiceURI ? 'selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`).join('')
+      : '<option>Default voice</option>';
+    $('voiceRate').value = prefs.rate;
+    $('voiceRateOut').textContent = `${(+prefs.rate).toFixed(2)}×`;
+    $('voicePitch').value = prefs.pitch;
+    $('voicePitchOut').textContent = (+prefs.pitch).toFixed(2);
+  }
+  if ('speechSynthesis' in window) {
+    loadVoices();
+    speechSynthesis.addEventListener?.('voiceschanged', loadVoices);
+  }
+
+  function say(text, force) {
+    if ((!prefs.voice && !force) || !('speechSynthesis' in window)) return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
+    const v = voices.find((x) => x.voiceURI === prefs.voiceURI);
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = +prefs.rate || 1;
+    u.pitch = +prefs.pitch || 1;
     speechSynthesis.speak(u);
   }
   let wakeLock = null;
@@ -613,6 +661,21 @@
     $('soundToggle').addEventListener('click', () => { prefs.sound = !prefs.sound; savePrefs(); applyPrefs(); unlockAudio(); if (prefs.sound) sfx.start(); });
     $('voiceToggle').addEventListener('click', () => { prefs.voice = !prefs.voice; savePrefs(); applyPrefs(); if (prefs.voice) say('Voice cues on'); });
     $('redToggle').addEventListener('click', () => { prefs.red = !prefs.red; savePrefs(); applyPrefs(); });
+
+    // Voice settings modal
+    $('voiceSettings').addEventListener('click', () => { loadVoices(); $('voiceModal').classList.remove('hidden'); });
+    $('voiceClose').addEventListener('click', () => $('voiceModal').classList.add('hidden'));
+    $('voiceModal').addEventListener('click', (e) => { if (e.target.id === 'voiceModal') $('voiceModal').classList.add('hidden'); });
+    $('voiceSelect').addEventListener('change', (e) => { prefs.voiceURI = e.target.value; savePrefs(); say('Agitate. Start draining.', true); });
+    $('voiceRate').addEventListener('input', (e) => { prefs.rate = +e.target.value; $('voiceRateOut').textContent = `${prefs.rate.toFixed(2)}×`; savePrefs(); });
+    $('voicePitch').addEventListener('input', (e) => { prefs.pitch = +e.target.value; $('voicePitchOut').textContent = prefs.pitch.toFixed(2); savePrefs(); });
+    $('voiceRate').addEventListener('change', () => say('Agitate.', true));
+    $('voicePitch').addEventListener('change', () => say('Agitate.', true));
+    $('voiceTest').addEventListener('click', () => say('Developer. Go. … Agitate. … Start draining. Next, stop bath.', true));
+    if (!('speechSynthesis' in window)) {
+      $('voiceHint').textContent = 'This browser does not support spoken cues.';
+      $('voiceSettings').disabled = true;
+    }
     document.addEventListener('pointerdown', unlockAudio, { once: true });
   }
 

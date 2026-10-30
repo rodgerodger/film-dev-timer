@@ -19,6 +19,7 @@
       <button class="chip" id="unitToggle" title="Switch temperature units">°C</button>
       <button class="chip" id="soundToggle" aria-pressed="true" title="Beeps">🔔 Sound</button>
       <button class="chip" id="voiceToggle" aria-pressed="false" title="Spoken cues">🗣 Voice</button>
+      <button class="chip" id="voiceSettings" title="Choose voice">⚙</button>
       <button class="chip" id="redToggle" aria-pressed="false" title="Dim red display for dark rooms">● Red mode</button>
     </div>
   </header>
@@ -206,6 +207,29 @@
       <div class="modal-actions">
         <button class="btn ghost" id="confirmNo">Cancel</button>
         <button class="btn primary" id="confirmYes">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="voiceModal" role="dialog" aria-modal="true" aria-labelledby="voiceModalTitle">
+    <div class="modal-box">
+      <h3 id="voiceModalTitle">Voice cues</h3>
+      <label class="field">
+        <span class="field-label">Voice</span>
+        <select id="voiceSelect" class="big-select small"></select>
+      </label>
+      <label class="field">
+        <span class="field-label">Speed</span>
+        <div class="temp-row"><input type="range" id="voiceRate" min="0.7" max="1.4" step="0.05" /><output id="voiceRateOut"></output></div>
+      </label>
+      <label class="field">
+        <span class="field-label">Pitch</span>
+        <div class="temp-row"><input type="range" id="voicePitch" min="0.7" max="1.3" step="0.05" /><output id="voicePitchOut"></output></div>
+      </label>
+      <p class="hint" id="voiceHint">Voices come from your device. For the most natural sound, download an “Enhanced” or “Premium” voice — iPhone/Mac: Settings → Accessibility → Spoken Content → Voices. Android: Settings → Text-to-speech.</p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="voiceTest">▶ Test</button>
+        <button class="btn primary" id="voiceClose">Done</button>
       </div>
     </div>
   </div>

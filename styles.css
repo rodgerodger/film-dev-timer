@@ -223,6 +223,9 @@ input[type=date], input[type=number] {
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; z-index: 50; padding: 20px; }
 .modal-box { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; max-width: 420px; width: 100%; }
 .modal-box p { font-size: 1.1rem; margin: 0 0 20px; line-height: 1.4; }
+.modal-box h3 { margin: 0 0 16px; font-size: 1.3rem; }
+.modal-box p.hint { font-size: .85rem; }
+.modal-box .temp-row output { font-size: 1.1rem; min-width: 60px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 /* Process-dependent visibility */
